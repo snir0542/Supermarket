@@ -87,3 +87,56 @@ export interface ReviewItem {
   needsReview: boolean;
   productName: string;
 }
+
+export interface ClubInfo {
+  chainId: string;
+  chainName: string | null;
+  clubId: string;
+  clubName: string | null;
+  promoCount: number;
+}
+
+export interface EffectiveOffer {
+  price: number;
+  kind: "base" | "promo" | "club";
+  conditional: boolean;
+  condition: string | null;
+}
+
+export interface PromoView {
+  chainId: string;
+  chainName: string | null;
+  promotionId: string;
+  description: string | null;
+  clubId: string;
+  clubName: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  isCoupon: boolean;
+  itemCode: string;
+  isGift: boolean;
+  minQty: number | null;
+  maxQty: number | null;
+  discountRate: number | null;
+  discountedPrice: number | null;
+  minPurchaseAmount: number | null;
+  isWeighted: boolean;
+  active: boolean;
+  unitPrice: number | null;
+  condition: string | null;
+}
+
+export interface ChainPromos {
+  chainId: string;
+  chainName: string | null;
+  basePrice: number;
+  selectedClub: string | null;
+  regular: EffectiveOffer;
+  member: EffectiveOffer;
+  promotions: PromoView[];
+}
+
+export interface ProductPromosResponse {
+  product: Product;
+  chains: ChainPromos[];
+}

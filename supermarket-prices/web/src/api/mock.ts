@@ -115,6 +115,39 @@ export const mockFetch: typeof fetch = async (input, init) => {
     return json({ stores: MOCK_STORES.filter((s) => online === null || s.isOnline === (online === "true")) });
   }
   if (path === "/basket/cheapest" && init?.method === "POST") return json(basket(JSON.parse(String(init.body))));
+  if (path === "/promos/clubs") {
+    return json({ clubs: [
+      { chainId: "7290027600007", chainName: "שופרסל", clubId: "3", clubName: "מועדון לקוחות", promoCount: 9 },
+      { chainId: "7290055700007", chainName: "קרפור", clubId: "2", clubName: "מועדון אפליקציה", promoCount: 5 },
+    ] });
+  }
+  const pm = path.match(/^\/products\/([^/]+)\/promos$/);
+  if (pm) {
+    const ref = decodeURIComponent(pm[1]!);
+    const product = /^\d{8,14}$/.test(ref) ? MOCK_PRODUCTS.find((p) => p.gtin === ref) : /^\d+$/.test(ref) ? MOCK_PRODUCTS.find((p) => p.id === Number(ref)) : search(ref, 1)[0];
+    if (!product) return json({ error: "product not found" }, 404);
+    const prices = currentPrices(product.id).filter((x) => MOCK_STORES.find((s) => s.storeKey === x.storeKey)?.isOnline);
+    const byChain = new Map<string, number>();
+    for (const pr of prices) byChain.set(pr.chainId, Math.min(byChain.get(pr.chainId) ?? Infinity, pr.price));
+    const end = new Date(Date.now() + 14 * 86400_000).toISOString();
+    const chains = [...byChain.entries()].map(([chainId, basePrice], i) => {
+      const name = MOCK_CHAINS.find((c) => c.chainId === chainId)?.name ?? null;
+      const clubId = chainId === "7290027600007" ? "3" : "2";
+      const clubPrice = Math.round(basePrice * 0.85 * 100) / 100;
+      const promoPrice = Math.round(basePrice * 0.92 * 100) / 100;
+      return {
+        chainId, chainName: name, basePrice, selectedClub: null,
+        regular: { price: promoPrice, kind: "promo", conditional: false, condition: null },
+        member: { price: clubPrice, kind: "club", conditional: false, condition: null },
+        promotions: [
+          { chainId, chainName: name, promotionId: `M${i}1`, description: "מבצע לכל הלקוחות", clubId: "0", clubName: null, startsAt: null, endsAt: end, isCoupon: false, itemCode: product.gtin ?? "", isGift: false, minQty: 1, maxQty: null, discountRate: null, discountedPrice: promoPrice, minPurchaseAmount: null, isWeighted: false, active: true, unitPrice: promoPrice, condition: null },
+          { chainId, chainName: name, promotionId: `M${i}2`, description: "מחיר מועדון מיוחד", clubId, clubName: "מועדון לקוחות", startsAt: null, endsAt: end, isCoupon: false, itemCode: product.gtin ?? "", isGift: false, minQty: 1, maxQty: null, discountRate: null, discountedPrice: clubPrice, minPurchaseAmount: null, isWeighted: false, active: true, unitPrice: clubPrice, condition: null },
+          { chainId, chainName: name, promotionId: `M${i}3`, description: "3 ב-20 ש\u05f4ח", clubId: "0", clubName: null, startsAt: null, endsAt: end, isCoupon: false, itemCode: product.gtin ?? "", isGift: false, minQty: 3, maxQty: null, discountRate: null, discountedPrice: 20, minPurchaseAmount: null, isWeighted: false, active: true, unitPrice: Math.round((20 / 3) * 100) / 100, condition: "בקניית 3 ומעלה" },
+        ],
+      };
+    });
+    return json({ product, chains });
+  }
   if (path === "/quality/freshness") return json({ chains: freshness() });
   if (path === "/quality/review") {
     return json({ items: [

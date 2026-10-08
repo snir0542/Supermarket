@@ -83,3 +83,38 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 );
 CREATE INDEX IF NOT EXISTS ingest_runs_file ON ingest_runs (file_name);
 CREATE INDEX IF NOT EXISTS ingest_runs_store ON ingest_runs (chain_id, store_id, created_at DESC);
+
+-- PromoFull: תמונת המבצעים העדכנית לכל חנות (מתחלפת במלואה בכל קליטה של החנות).
+-- club_id = '0' מבצע לכולם; אחרת מבצע מועדון. התנאים נשמרים לכל פריט במבצע.
+CREATE TABLE IF NOT EXISTS promotions (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_pk       INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  chain_id       TEXT NOT NULL,
+  promotion_id   TEXT NOT NULL,
+  description    TEXT,
+  club_id        TEXT NOT NULL DEFAULT '0',
+  club_name      TEXT,
+  starts_at      TEXT,
+  ends_at        TEXT,
+  allow_multiple INTEGER NOT NULL DEFAULT 0,
+  is_coupon      INTEGER NOT NULL DEFAULT 0,
+  file_name      TEXT NOT NULL,
+  observed_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS promotions_store ON promotions (store_pk);
+CREATE INDEX IF NOT EXISTS promotions_club ON promotions (chain_id, club_id);
+
+CREATE TABLE IF NOT EXISTS promotion_items (
+  promotion_pk        INTEGER NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+  item_code           TEXT NOT NULL,
+  item_type           INTEGER,
+  is_gift             INTEGER NOT NULL DEFAULT 0,
+  min_qty             REAL,
+  max_qty             REAL,
+  discount_rate       REAL,
+  discounted_price    REAL,
+  min_purchase_amount REAL,
+  is_weighted         INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (promotion_pk, item_code)
+);
+CREATE INDEX IF NOT EXISTS promotion_items_lookup ON promotion_items (item_code);

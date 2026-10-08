@@ -92,3 +92,37 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 );
 CREATE INDEX IF NOT EXISTS ingest_runs_file ON ingest_runs (file_name);
 CREATE INDEX IF NOT EXISTS ingest_runs_store ON ingest_runs (chain_id, store_id, created_at DESC);
+
+-- PromoFull: latest promotion snapshot per store (fully replaced on each store ingest).
+CREATE TABLE IF NOT EXISTS promotions (
+  id             bigserial PRIMARY KEY,
+  store_pk       integer NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  chain_id       text NOT NULL,
+  promotion_id   text NOT NULL,
+  description    text,
+  club_id        text NOT NULL DEFAULT '0',
+  club_name      text,
+  starts_at      timestamptz,
+  ends_at        timestamptz,
+  allow_multiple boolean NOT NULL DEFAULT false,
+  is_coupon      boolean NOT NULL DEFAULT false,
+  file_name      text NOT NULL,
+  observed_at    timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS promotions_store ON promotions (store_pk);
+CREATE INDEX IF NOT EXISTS promotions_club ON promotions (chain_id, club_id);
+
+CREATE TABLE IF NOT EXISTS promotion_items (
+  promotion_pk        bigint NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+  item_code           text NOT NULL,
+  item_type           integer,
+  is_gift             boolean NOT NULL DEFAULT false,
+  min_qty             real,
+  max_qty             real,
+  discount_rate       real,
+  discounted_price    numeric(10,2),
+  min_purchase_amount numeric(10,2),
+  is_weighted         boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (promotion_pk, item_code)
+);
+CREATE INDEX IF NOT EXISTS promotion_items_lookup ON promotion_items (item_code);

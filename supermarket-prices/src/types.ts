@@ -58,3 +58,41 @@ export interface ChainSource {
   listFiles(kinds: FileKind[], storeIds?: string[]): Promise<RemoteFile[]>;
   download(file: RemoteFile): Promise<Buffer>;
 }
+
+export interface PromoItem {
+  itemCode: string;
+  itemType: number | null;
+  isGift: boolean;
+  /** minimum quantity to get the promo price; null/0/1 = no condition */
+  minQty: number | null;
+  maxQty: number | null;
+  /** percent off the regular price (mutually exclusive with discountedPrice in practice) */
+  discountRate: number | null;
+  /** promo price: the unit price when minQty <= 1, otherwise the price for the whole minQty bundle */
+  discountedPrice: number | null;
+  /** minimum basket amount for the promo (rare) */
+  minPurchaseAmount: number | null;
+  isWeighted: boolean;
+}
+
+export interface Promotion {
+  promotionId: string;
+  description: string | null;
+  /** "0" = everyone; anything else = a chain club */
+  clubId: string;
+  clubName: string | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  allowMultipleDiscounts: boolean;
+  isCoupon: boolean;
+  items: PromoItem[];
+}
+
+export interface PromoFile {
+  chainId: string;
+  subChainId: string;
+  storeId: string;
+  promotions: Promotion[];
+  /** promotions that could not be read (no items) */
+  skipped: number;
+}

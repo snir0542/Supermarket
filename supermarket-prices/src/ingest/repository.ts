@@ -137,5 +137,71 @@ export interface Repository {
   freshness(): Promise<FreshnessRow[]>;
   /** online undefined = both physical and online stores */
   listStores(opts: { text?: string; chainIds?: string[]; online?: boolean; limit: number }): Promise<StoreListRow[]>;
-  reviewQueue(limit: number): Promise<Array<ChainItemRow & { productName: string }>>;
+  reviewQueue(limit: number): Promise<Array<ChainItemRow & { productName: string }>>;  /** replaces the store's promotion snapshot with the given file's promotions */
+  replaceStorePromotions(chainId: string, storeKey: string, fileName: string, observedAt: Date, promotions: PromotionWrite[]): Promise<PromoWriteResult>;
+  /** promotions for a product (joined through chain_items), across online stores by default */
+  productPromotions(productId: number, opts: { chainId?: string }): Promise<PromotionRow[]>;
+  /** lowest current price per chain for a product (online stores when scoped) */
+  currentChainPrices(productId: number): Promise<Array<{ chainId: string; chainName: string | null; price: number }>>;
+  /** clubs seen in current promotions (club_id != '0'), per chain */
+  listClubs(): Promise<ClubRow[]>;
+
+}
+
+export interface PromotionWrite {
+  promotionId: string;
+  description: string | null;
+  clubId: string;
+  clubName: string | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  allowMultipleDiscounts: boolean;
+  isCoupon: boolean;
+  items: Array<{
+    itemCode: string;
+    itemType: number | null;
+    isGift: boolean;
+    minQty: number | null;
+    maxQty: number | null;
+    discountRate: number | null;
+    discountedPrice: number | null;
+    minPurchaseAmount: number | null;
+    isWeighted: boolean;
+  }>;
+}
+
+export interface PromoWriteResult {
+  promotions: number;
+  clubPromotions: number;
+  items: number;
+}
+
+export interface PromotionRow {
+  chainId: string;
+  chainName: string | null;
+  storeKey: string;
+  promotionId: string;
+  description: string | null;
+  clubId: string;
+  clubName: string | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  allowMultipleDiscounts: boolean;
+  isCoupon: boolean;
+  itemCode: string;
+  isGift: boolean;
+  minQty: number | null;
+  maxQty: number | null;
+  discountRate: number | null;
+  discountedPrice: number | null;
+  minPurchaseAmount: number | null;
+  isWeighted: boolean;
+}
+
+export interface ClubRow {
+  chainId: string;
+  chainName: string | null;
+  clubId: string;
+  clubName: string | null;
+  promoCount: number;
 }

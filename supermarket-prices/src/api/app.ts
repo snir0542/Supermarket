@@ -54,6 +54,24 @@ export function createApp(service: PriceService, config: Pick<Config, "maxFileAg
     return out ? c.json(out) : c.json({ error: "product not found" }, 404);
   });
 
+  app.get("/promos/clubs", async (c) => c.json({ clubs: await service.listClubs() }));
+
+  app.get("/products/:ref/promos", async (c) => {
+    const ref = c.req.param("ref");
+    const isGtin = /^\d{8,14}$/.test(ref);
+    // clubs=7290027600007:3,7290058140886:2 — המועדון שהמשתמש בחר לכל רשת
+    const clubs: Record<string, string> = {};
+    for (const part of (c.req.query("clubs") ?? "").split(",")) {
+      const [chainId, clubId] = part.split(":");
+      if (chainId && clubId) clubs[chainId.trim()] = clubId.trim();
+    }
+    const out = await service.productPromos(
+      isGtin ? { gtin: ref } : /^\d+$/.test(ref) ? { id: Number(ref) } : { query: decodeURIComponent(ref) },
+      clubs,
+    );
+    return out ? c.json(out) : c.json({ error: "product not found" }, 404);
+  });
+
   app.post("/basket/cheapest", async (c) => {
     const parsed = basketSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid body", details: parsed.error.flatten() }, 400);

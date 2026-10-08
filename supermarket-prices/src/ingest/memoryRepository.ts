@@ -3,7 +3,7 @@ import { normalizeHebrew } from "../normalize/hebrew.js";
 import { similarity } from "../normalize/trigram.js";
 import type {
   BasketLine, BasketStoreResult, ChainItemRow, FreshnessRow, HistoryPoint, IngestRunInfo, PriceWrite,
-  ProductRow, Repository, SearchHit, SimilarProduct, StoreArea, StoreListRow, WriteResult,
+  ProductRow, PromotionRow, PromotionWrite, PromoWriteResult, ClubRow, Repository, SearchHit, SimilarProduct, StoreArea, StoreListRow, WriteResult,
 } from "./repository.js";
 
 interface StoreMem extends StoreRecord {
@@ -191,5 +191,60 @@ export class MemoryRepository implements Repository {
       .filter((c) => c.needsReview)
       .slice(0, limit)
       .map((c) => ({ ...c, productName: this.products.find((p) => p.id === c.productId)?.name ?? "" }));
+  }
+
+  promos: Array<{ storeKey: string; chainId: string; fileName: string; observedAt: Date } & PromotionWrite> = [];
+
+  async replaceStorePromotions(chainId: string, storeKey: string, fileName: string, observedAt: Date, promotions: PromotionWrite[]): Promise<PromoWriteResult> {
+    this.promos = this.promos.filter((p) => p.storeKey !== storeKey);
+    const res: PromoWriteResult = { promotions: 0, clubPromotions: 0, items: 0 };
+    for (const p of promotions) {
+      this.promos.push({ storeKey, chainId, fileName, observedAt, ...p });
+      res.promotions++;
+      if (p.clubId !== "0") res.clubPromotions++;
+      res.items += new Set(p.items.map((i) => i.itemCode)).size;
+    }
+    return res;
+  }
+
+  async productPromotions(productId: number, opts: { chainId?: string }): Promise<PromotionRow[]> {
+    const codes = [...this.chainItems.entries()].filter(([, v]) => v.productId === productId).map(([k]) => k);
+    const out: PromotionRow[] = [];
+    for (const p of this.promos) {
+      if (opts.chainId && p.chainId !== opts.chainId) continue;
+      for (const it of p.items) {
+        if (!codes.includes(`${p.chainId}:${it.itemCode}`)) continue;
+        out.push({
+          chainId: p.chainId, chainName: this.chains.get(p.chainId) ?? null, storeKey: p.storeKey, promotionId: p.promotionId,
+          description: p.description, clubId: p.clubId, clubName: p.clubName, startsAt: p.startsAt, endsAt: p.endsAt,
+          allowMultipleDiscounts: p.allowMultipleDiscounts, isCoupon: p.isCoupon, itemCode: it.itemCode, isGift: it.isGift,
+          minQty: it.minQty, maxQty: it.maxQty, discountRate: it.discountRate, discountedPrice: it.discountedPrice,
+          minPurchaseAmount: it.minPurchaseAmount, isWeighted: it.isWeighted,
+        });
+      }
+    }
+    return out;
+  }
+
+  async currentChainPrices(productId: number): Promise<Array<{ chainId: string; chainName: string | null; price: number }>> {
+    const codes = [...this.chainItems.entries()].filter(([, v]) => v.productId === productId).map(([k]) => k);
+    const best = new Map<string, number>();
+    for (const cur of this.current.values()) {
+      if (!codes.includes(`${cur.chainId}:${cur.itemCode}`)) continue;
+      best.set(cur.chainId, Math.min(best.get(cur.chainId) ?? Infinity, cur.price));
+    }
+    return [...best.entries()].map(([chainId, price]) => ({ chainId, chainName: this.chains.get(chainId) ?? null, price })).sort((a, b) => a.price - b.price);
+  }
+
+  async listClubs(): Promise<ClubRow[]> {
+    const m = new Map<string, ClubRow>();
+    for (const p of this.promos) {
+      if (p.clubId === "0") continue;
+      const k = `${p.chainId}:${p.clubId}`;
+      const cur = m.get(k) ?? { chainId: p.chainId, chainName: this.chains.get(p.chainId) ?? null, clubId: p.clubId, clubName: p.clubName, promoCount: 0 };
+      cur.promoCount++;
+      m.set(k, cur);
+    }
+    return [...m.values()];
   }
 }

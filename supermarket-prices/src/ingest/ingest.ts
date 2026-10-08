@@ -2,7 +2,8 @@ import type { Config } from "../config.js";
 import { matchItem } from "../normalize/matcher.js";
 import { checkFile } from "../quality/checks.js";
 import { parsePriceFile, parseStoresFile } from "../parser/priceFile.js";
-import type { ChainSource, FileKind, PriceFile, RemoteFile, StoreRecord } from "../types.js";
+import { parsePromoFile } from "../parser/promoFile.js";
+import type { ChainSource, FileKind, PriceFile, PromoFile, RemoteFile, StoreRecord } from "../types.js";
 import type { IngestRunInfo, PriceWrite, Repository } from "./repository.js";
 
 export interface IngestOptions {
@@ -76,6 +77,28 @@ export async function ingestPriceFile(
     priceChanges: written.changed,
     status: issues.some((i) => i.severity === "error") ? "failed" : issues.length ? "warning" : "ok",
     issues: issues.map((i) => `${i.code}: ${i.message}`),
+  };
+  await repo.recordIngestRun(run);
+  return run;
+}
+
+/** Stores one parsed promo file as the store's current promotion snapshot. */
+export async function ingestPromoFile(
+  repo: Repository,
+  file: PromoFile,
+  meta: { fileName: string; fileTime: Date | null; expectedChainId: string | null; chainName?: string | null },
+  opts: IngestOptions,
+): Promise<IngestRunInfo> {
+  const now = opts.now?.() ?? new Date();
+  const chainId = file.chainId || meta.expectedChainId || "unknown";
+  await repo.upsertChain(chainId, meta.chainName ?? null);
+  const storeKey = await repo.ensureStore(chainId, file.subChainId, file.storeId);
+  const written = await repo.replaceStorePromotions(chainId, storeKey, meta.fileName, meta.fileTime ?? now, file.promotions);
+  const run: IngestRunInfo = {
+    chainId, storeId: `${file.subChainId}-${file.storeId}`, fileName: meta.fileName, fileTime: meta.fileTime,
+    itemsTotal: written.promotions, itemsInvalid: file.skipped, gtinMatched: 0, fuzzyMatched: 0, newProducts: 0,
+    needsReview: 0, priceChanges: 0, status: "ok",
+    issues: [`PROMOS: ${written.promotions} מבצעים (${written.clubPromotions} מועדון), ${written.items} פריטים`],
   };
   await repo.recordIngestRun(run);
   return run;
@@ -161,6 +184,20 @@ export async function ingestSource(
       continue;
     }
     try {
+      if (f.kind === "promofull") {
+        const parsedPromo = parsePromoFile(await source.download(f));
+        const pseudo: PriceFile = { chainId: parsedPromo.chainId, subChainId: parsedPromo.subChainId, storeId: parsedPromo.storeId, items: [], skipped: 0 };
+        const { file: rec } = reconcileStoreId(pseudo, f);
+        const exactP = canonical.get(`${rec.chainId}:${stripZeros(rec.subChainId)}:${stripZeros(rec.storeId)}`);
+        const candidatesP = [...canonical.values()].filter((s) => s.chainId === rec.chainId && stripZeros(s.storeId) === stripZeros(rec.storeId));
+        const knownP = exactP ?? (candidatesP.length === 1 ? candidatesP[0] : undefined);
+        if (onlineOnly && !knownP?.isOnline) throw new Error("Online store identity could not be verified");
+        const finalPromo = knownP ? { ...parsedPromo, subChainId: knownP.subChainId, storeId: knownP.storeId } : parsedPromo;
+        const run = await ingestPromoFile(repo, finalPromo, { fileName: f.name, fileTime: f.publishedAt, expectedChainId: opts.expectedChainId ?? f.chainId, chainName: source.name }, opts);
+        summary.runs.push(run);
+        summary.filesIngested++;
+        continue;
+      }
       const { file: reconciled, note } = reconcileStoreId(parsePriceFile(await source.download(f)), f);
       // "1"/"39" in the XML vs "001"/"039" in the Stores file are the same store: use one spelling
       const exact = canonical.get(`${reconciled.chainId}:${stripZeros(reconciled.subChainId)}:${stripZeros(reconciled.storeId)}`);

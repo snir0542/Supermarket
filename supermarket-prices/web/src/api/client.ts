@@ -1,5 +1,5 @@
 import { mockFetch } from "./mock";
-import type { BasketArea, BasketInput, BasketResponse, ChainFreshness, HistoryResponse, ReviewItem, SearchHit, StoreRow } from "./types";
+import type { BasketArea, BasketInput, BasketResponse, ChainFreshness, ClubInfo, HistoryResponse, ProductPromosResponse, ReviewItem, SearchHit, StoreRow } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -13,6 +13,8 @@ export interface ApiClient {
   stores(opts?: { online?: boolean; text?: string; limit?: number }): Promise<StoreRow[]>;
   basket(items: BasketInput[], area: BasketArea, requireAll: boolean): Promise<BasketResponse>;
   freshness(): Promise<ChainFreshness[]>;
+  clubs(): Promise<ClubInfo[]>;
+  productPromos(ref: string | number, clubs: Record<string, string>): Promise<ProductPromosResponse>;
   review(): Promise<ReviewItem[]>;
 }
 
@@ -47,6 +49,11 @@ export function createClient(baseUrl: string, fetchImpl: typeof fetch = (...a) =
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ items, area, requireAll, limit: 30 }),
       }),
+    clubs: async () => (await call<{ clubs: ClubInfo[] }>("/promos/clubs")).clubs,
+    productPromos: (ref, clubs) => {
+      const q = Object.entries(clubs).map(([c, v]) => `${c}:${v}`).join(",");
+      return call<ProductPromosResponse>(`/products/${encodeURIComponent(String(ref))}/promos${q ? `?clubs=${encodeURIComponent(q)}` : ""}`);
+    },
     freshness: async () => (await call<{ chains: ChainFreshness[] }>("/quality/freshness")).chains,
     review: async () => (await call<{ items: ReviewItem[] }>("/quality/review")).items,
   };

@@ -18,17 +18,20 @@ interface AppState {
   clear: () => void;
   online: boolean;
   setOnline: (v: boolean) => void;
+  /** המועדון שנבחר לכל רשת (chainId -> clubId) */
+  clubs: Record<string, string>;
+  setClub: (chainId: string, clubId: string | null) => void;
 }
 
 const Ctx = createContext<AppState | null>(null);
 const KEY = "supermarket-web-v1";
 
-function load(): { items: BasketItem[]; online: boolean } {
+function load(): { items: BasketItem[]; online: boolean; clubs: Record<string, string> } {
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? "null") as { items?: BasketItem[]; online?: boolean } | null;
-    return { items: Array.isArray(raw?.items) ? raw!.items : [], online: true };
+    const raw = JSON.parse(localStorage.getItem(KEY) ?? "null") as { items?: BasketItem[]; online?: boolean; clubs?: Record<string, string> } | null;
+    return { items: Array.isArray(raw?.items) ? raw!.items : [], online: true, clubs: raw?.clubs && typeof raw.clubs === "object" ? raw.clubs : {} };
   } catch {
-    return { items: [], online: true };
+    return { items: [], online: true, clubs: {} };
   }
 }
 
@@ -54,8 +57,14 @@ export function AppProvider({ children, api }: { children: ReactNode; api?: ApiC
   const remove = useCallback((id: number) => setState((s) => ({ ...s, items: s.items.filter((i) => i.id !== id) })), []);
   const clear = useCallback(() => setState((s) => ({ ...s, items: [] })), []);
   const setOnline = useCallback((_online: boolean) => setState((s) => ({ ...s, online: true })), []);
+  const setClub = useCallback((chainId: string, clubId: string | null) => setState((s) => {
+    const clubs = { ...s.clubs };
+    if (clubId === null) delete clubs[chainId];
+    else clubs[chainId] = clubId;
+    return { ...s, clubs };
+  }), []);
 
-  const value = useMemo(() => ({ api: client, items: state.items, add, setQty, remove, clear, online: state.online, setOnline }), [client, state, add, setQty, remove, clear, setOnline]);
+  const value = useMemo(() => ({ api: client, items: state.items, add, setQty, remove, clear, online: state.online, setOnline, clubs: state.clubs, setClub }), [client, state, add, setQty, remove, clear, setOnline, setClub]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

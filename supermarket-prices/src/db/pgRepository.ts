@@ -4,7 +4,7 @@ import type { StoreRecord } from "../types.js";
 import { normalizeHebrew } from "../normalize/hebrew.js";
 import type {
   BasketLine, BasketStoreResult, ChainItemRow, FreshnessRow, HistoryPoint, IngestRunInfo, PriceWrite,
-  ProductRow, Repository, SearchHit, SimilarProduct, StoreArea, StoreListRow, WriteResult,
+  ProductRow, PromotionRow, PromotionWrite, PromoWriteResult, ClubRow, Repository, SearchHit, SimilarProduct, StoreArea, StoreListRow, WriteResult,
 } from "../ingest/repository.js";
 
 type Row = Record<string, any>;
@@ -279,5 +279,85 @@ export class PgRepository implements Repository {
       chainId: x.chain_id, itemCode: x.item_code, productId: x.product_id, rawName: x.raw_name, matchMethod: x.match_method,
       matchScore: x.match_score, needsReview: x.needs_review, productName: x.product_name,
     }));
+  }
+
+  async replaceStorePromotions(chainId: string, storeKey: string, fileName: string, observedAt: Date, promotions: PromotionWrite[]): Promise<PromoWriteResult> {
+    const res: PromoWriteResult = { promotions: 0, clubPromotions: 0, items: 0 };
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM promotions WHERE store_pk=$1`, [storeKey]);
+      for (const p of promotions) {
+        const r = await client.query(
+          `INSERT INTO promotions (store_pk, chain_id, promotion_id, description, club_id, club_name, starts_at, ends_at, allow_multiple, is_coupon, file_name, observed_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+          [storeKey, chainId, p.promotionId, p.description, p.clubId, p.clubName, p.startsAt, p.endsAt, p.allowMultipleDiscounts, p.isCoupon, fileName, observedAt],
+        );
+        const pk = r.rows[0]!.id;
+        res.promotions++;
+        if (p.clubId !== "0") res.clubPromotions++;
+        for (const it of p.items) {
+          const ir = await client.query(
+            `INSERT INTO promotion_items (promotion_pk, item_code, item_type, is_gift, min_qty, max_qty, discount_rate, discounted_price, min_purchase_amount, is_weighted)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`,
+            [pk, it.itemCode, it.itemType, it.isGift, it.minQty, it.maxQty, it.discountRate, it.discountedPrice, it.minPurchaseAmount, it.isWeighted],
+          );
+          if (ir.rowCount) res.items++;
+        }
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+    return res;
+  }
+
+  async productPromotions(productId: number, opts: { chainId?: string }): Promise<PromotionRow[]> {
+    const r = await this.pool.query(
+      `SELECT p.chain_id, c.name AS chain_name, p.store_pk, p.promotion_id, p.description, p.club_id, p.club_name, p.starts_at, p.ends_at,
+              p.allow_multiple, p.is_coupon, i.item_code, i.is_gift, i.min_qty, i.max_qty, i.discount_rate, i.discounted_price, i.min_purchase_amount, i.is_weighted
+       FROM promotion_items i
+       JOIN promotions p ON p.id = i.promotion_pk
+       JOIN chain_items ci ON ci.chain_id = p.chain_id AND ci.item_code = i.item_code
+       JOIN stores s ON s.id = p.store_pk LEFT JOIN chains c ON c.chain_id = p.chain_id
+       WHERE ci.product_id = $1 AND ${this.scope()}
+         AND ($2::text IS NULL OR p.chain_id = $2)
+       ORDER BY p.chain_id, p.club_id, p.promotion_id`,
+      [productId, opts.chainId ?? null],
+    );
+    return r.rows.map((x) => ({
+      chainId: x.chain_id, chainName: x.chain_name, storeKey: String(x.store_pk), promotionId: x.promotion_id, description: x.description,
+      clubId: x.club_id, clubName: x.club_name, startsAt: x.starts_at, endsAt: x.ends_at,
+      allowMultipleDiscounts: x.allow_multiple, isCoupon: x.is_coupon, itemCode: x.item_code, isGift: x.is_gift,
+      minQty: x.min_qty, maxQty: x.max_qty, discountRate: x.discount_rate,
+      discountedPrice: x.discounted_price === null ? null : Number(x.discounted_price),
+      minPurchaseAmount: x.min_purchase_amount === null ? null : Number(x.min_purchase_amount), isWeighted: x.is_weighted,
+    }));
+  }
+
+  async currentChainPrices(productId: number): Promise<Array<{ chainId: string; chainName: string | null; price: number }>> {
+    const r = await this.pool.query(
+      `SELECT s.chain_id, c.name AS chain_name, min(cp.price) AS price
+       FROM current_prices cp
+       JOIN chain_items ci ON ci.chain_id = cp.chain_id AND ci.item_code = cp.item_code
+       JOIN stores s ON s.id = cp.store_pk LEFT JOIN chains c ON c.chain_id = s.chain_id
+       WHERE ci.product_id = $1 AND ${this.scope()}
+       GROUP BY s.chain_id, c.name ORDER BY price`,
+      [productId],
+    );
+    return r.rows.map((x) => ({ chainId: x.chain_id, chainName: x.chain_name, price: Number(x.price) }));
+  }
+
+  async listClubs(): Promise<ClubRow[]> {
+    const r = await this.pool.query(
+      `SELECT p.chain_id, c.name AS chain_name, p.club_id, p.club_name, count(DISTINCT p.id) AS promo_count
+       FROM promotions p JOIN stores s ON s.id = p.store_pk LEFT JOIN chains c ON c.chain_id = p.chain_id
+       WHERE p.club_id <> '0' AND ${this.scope()}
+       GROUP BY p.chain_id, p.club_id, p.club_name ORDER BY p.chain_id, promo_count DESC`,
+    );
+    return r.rows.map((x) => ({ chainId: x.chain_id, chainName: x.chain_name, clubId: x.club_id, clubName: x.club_name, promoCount: Number(x.promo_count) }));
   }
 }

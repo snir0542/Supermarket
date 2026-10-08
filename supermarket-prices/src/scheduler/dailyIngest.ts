@@ -61,7 +61,7 @@ export async function ingestChainWithRetry(source: ChainSource, deps: DailyInges
   const sleep = deps.sleep ?? defaultSleep;
   const log = deps.log ?? (() => {});
   const ingest =
-    deps.ingest ?? ((repo, src, config) => ingestSource(repo, src, { config, kinds: ["pricefull"], onlineOnly: config.onlineOnly })); // Stores files + all PriceFull, online stores included
+    deps.ingest ?? ((repo, src, config) => ingestSource(repo, src, { config, kinds: ["pricefull", "promofull"], onlineOnly: config.onlineOnly })); // Stores files + all PriceFull, online stores included
   const started = Date.now();
   const attempts = Math.max(1, deps.retry.attempts);
   let last: SourceIngestSummary | undefined;

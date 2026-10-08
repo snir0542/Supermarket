@@ -4,6 +4,7 @@ import { PriceChart } from "../components/PriceChart";
 import { Empty, ErrorBox, Loading, ModeToggle, Qty } from "../components/ui";
 import { buildChainSeries, chainColor, currentPrices, formatDate, formatPrice } from "../format";
 import { useApp, useAsync } from "../state";
+import { ClubSelector } from "../components/ClubSelector";
 
 const RANGES = [
   { label: "30 יום", days: 30 },
@@ -12,10 +13,11 @@ const RANGES = [
 ] as const;
 
 export function ProductPage({ refId }: { refId: string }) {
-  const { api, add, online, setOnline } = useApp();
+  const { api, add, online, setOnline, clubs } = useApp();
   const [range, setRange] = useState<number>(90);
   const [qty, setQty] = useState(1);
   const hist = useAsync(() => api.history(refId), [refId]);
+  const promos = useAsync(() => api.productPromos(refId, clubs).catch(() => null), [refId, clubs]);
   const stores = useAsync(() => api.stores(), []);
 
   const storeMap = useMemo(() => new Map((stores.data ?? []).map((s) => [s.storeKey, s])), [stores.data]);
@@ -125,6 +127,56 @@ export function ProductPage({ refId }: { refId: string }) {
           <p className="muted small">בכל רשת מוצג המחיר הזול ביותר מבין הסניפים שלה.</p>
         </div>
       </div>
+
+      {promos.data && promos.data.chains.some((ch) => ch.promotions.length > 0) && (
+        <div className="card promo-card">
+          <h2>מבצעים ומחיר מועדון</h2>
+          <ClubSelector offers={promos.data.chains} />
+          <ul className="chain-list">
+            {promos.data.chains.filter((ch) => ch.promotions.length > 0).map((ch) => {
+              const member = ch.member;
+              const regular = ch.regular;
+              const best = member.price < regular.price ? member : regular;
+              return (
+                <li key={ch.chainId}>
+                  <details open>
+                    <summary>
+                      <span className="dot" style={{ background: chainColor(ch.chainId) }} />
+                      <span className="chain-name">{ch.chainName ?? ch.chainId}</span>
+                      {best.kind === "club" && <span className="badge club">מחיר מועדון</span>}
+                      {best.kind === "promo" && <span className="badge good">מבצע</span>}
+                      {best.conditional && <span className="badge warn">{best.condition}</span>}
+                      <span className="chain-price">
+                        {best.price < ch.basePrice && <s className="muted">{formatPrice(ch.basePrice)}</s>} {formatPrice(best.price)}
+                      </span>
+                    </summary>
+                    {member.price < regular.price && (
+                      <p className="muted small promo-compare">
+                        מחיר רגיל אחרי מבצעים: {formatPrice(regular.price)} · במועדון שלך: {formatPrice(member.price)}
+                      </p>
+                    )}
+                    <ul className="promo-list">
+                      {ch.promotions.filter((pr) => pr.active && !pr.isGift).slice(0, 12).map((pr) => (
+                        <li key={`${pr.promotionId}-${pr.clubId}-${pr.itemCode}`} className={pr.clubId !== "0" ? "club-promo" : ""}>
+                          <span className="promo-desc">{pr.description ?? "מבצע"}</span>
+                          <span className="muted small">
+                            {pr.clubId !== "0" ? `מועדון: ${pr.clubName ?? pr.clubId}` : "לכולם"}
+                            {pr.condition ? ` · ${pr.condition}` : ""}
+                            {pr.endsAt ? ` · עד ${formatDate(pr.endsAt)}` : ""}
+                            {pr.isCoupon ? " · קופון" : ""}
+                          </span>
+                          {pr.unitPrice !== null && <span className="store-price">{formatPrice(pr.unitPrice)}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="muted small">מבצעים מותנים (כמות מינימום, קופון) מוצגים עם התנאי - הם לא מגולגלים למחיר אחד.</p>
+        </div>
+      )}
     </section>
   );
 }
